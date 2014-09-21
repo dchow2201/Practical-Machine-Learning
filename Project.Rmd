@@ -1,0 +1,144 @@
+---
+title: "Practical Machine Learning Project"
+author: "David"
+date: "Friday, July 11, 2014"
+output: html_document
+---
+
+Objective:
+---------------
+The goal of this project is to predict the way we exercises using the weight lifting exercises dataset provided by:     
+
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.      
+
+I will first clean up the data by removing the identifier columns and columns with majority missing values. Then I will use 10 fold cross validation method to evaluate the expected out of sample error. The predictive algorithm that I will use are:     
+
+1. C5.0 decision tree      
+2. Random Forest        
+3. Support Vector Machine
+ 
+
+Read in train and test data
+---------------------------------------------
+The training and test data set is downloaded and saved in the project folder named *data*.     
+
+```{r readData}
+#Some columns such as kurtosis_roll_belt are coded as character string
+#do not treat string as factors
+train=read.csv("./data/training.csv",stringsAsFactors=F)
+
+test=read.csv("./data/testing.csv",stringsAsFactors=F)
+```
+
+Explore training dataset and select features for incursion
+----------------------------------------------------------
+The outcome variable seems to be evenly distrubuted. I therefore decided to use the overall accuracy (number of matches/totally number of cases) as our metric for cross-validation and model eveluation.     
+
+I also created a general vector that stores the names of column to keep for the training,validation and test data set. The following columns are eliminated.            
+
+1. The first 7 identifier columns,they do not provide useful information for predicting our classe variable.      
+2. There are 100 columns with majority NA or empty string.
+ 
+```{r featureSelection}
+#Examine the distribution of outcome variable
+table(train$classe)
+barplot(prop.table(table(train$classe)),main="Distribution of outcome variable")
+#The distribution of the outcome variable is fairly uniform
+
+numNA=apply(train,MARGIN = 2,function(x){sum(is.na(x)|x=="")})
+
+colToKeep<-names(train)[!numNA]
+
+#Get rid of the first 7 identifier columns
+colToKeep<-colToKeep[-c(1:7)]
+
+train=train[,colToKeep]
+train$classe=factor(train$classe)
+n=length(colToKeep)
+test=test[,c(colToKeep[-n],"problem_id")]
+```
+
+
+Cross Validation
+---------------------------
+We will perform 10-fold cross-validation:      
+The training data will be split randomly into 10 sets of nonovelapping training(90%) and testing(10%) data. The algorithm will use the training data to train a model to predict on the testing data. The overall accuracy will be averaged over the 10 sets to obtain the expected out of sample error.              
+
+```{r trainAndCV}
+library(caret)
+set.seed(13579)
+folds<-createFolds(train$classe,k=10)
+
+```
+
+Predictive Modeling
+===========================
+
+C5.0 decision tree
+------------------------------
+```{r C50}
+library(C50)
+cv_results.c50<-sapply(folds,function(x){
+  training<-train[x,]
+  validation<-train[-x,]
+  n=ncol(training)
+  modFit.c50<-C5.0(training[,-n], training$classe,10)
+  pred.c50<-predict(modFit.c50, validation[,-n])
+  accuracy=sum(validation$classe==pred.c50)/nrow(validation)
+  return(accuracy)
+})
+
+mean(cv_results.c50)
+
+```
+
+Random Forest
+---------------
+```{r RF}
+library("randomForest")
+#Random Forests
+
+cv_results.rf<-sapply(folds,function(x){
+  training<-train[x,]
+  validation<-train[-x,]
+  n=ncol(training)
+  modFit.rf<-randomForest(training[,-n], training$classe,ntree=50)
+  pred.rf<-predict(modFit.rf,validation[,-n])
+  accuracy=sum(validation$classe==pred.rf)/nrow(validation)
+  return(accuracy)
+})
+
+mean(cv_results.rf)
+
+```
+
+Support Vector Machine
+----------------------
+```{r svm}
+library("kernlab")
+
+cv_results.svm<-sapply(folds,function(x){
+  training<-train[x,]
+  validation<-train[-x,]  
+  modFit.svm<-ksvm(classe~.,data=training,kernel="rbfdot")
+  pred.svm<-predict(modFit.svm,validation)
+  accuracy=sum(validation$classe==pred.svm)/nrow(validation)
+  return(accuracy)
+})
+
+mean(cv_results.svm)
+
+```
+
+Expected Out of Sample Error
+------------------------------
+Base on the result, random forest has the best performance with an average overall accuracy rate of 94%. I will now use random forest to train my final model using the entire training data set. The expected out of sample error is 6%.     
+
+```{r final}
+
+modFit<-randomForest(train[,-n], train$classe,ntree=50)
+pred<-predict(modFit,test[,-n])
+data.frame(test$problem_id,pred)
+```
+
+
